@@ -1,2 +1,4 @@
-nohup python3  train_fully_supervised_2D.py  --exp /Fu_LinkNet_46_4_12 --model LinkNetBase --batch_size 64 --gpu 1 --labeled_csv train_046.txt >Fu_LinkNet_46_4_12.log 2>&1 & && \
-nohup python3  train_fully_supervised_2D.py  --exp /Fu_UNetdrop_46_4_12 --model UNetWithDrop  --batch_size 16 --gpu 3 --labeled_csv train_046.txt >Fu_UNetWithDrop_46_4_12.log 2>&1 &
+nohup python3  train_fully_supervised_2D.py  --exp /Fu_LinkNet_46_4_12 --model LinkNetBase --target_mpp 0.92 --batch_size 64 --gpu 1 --labeled_csv train_046.txt >Fu_LinkNet_46_4_12.log 2>&1 & && \
+nohup python3  train_fully_supervised_2D.py  --exp /Fu_UNetdrop_46_4_12 --model UNetWithDrop --target_mpp 0.92 --batch_size 16 --gpu 3 --labeled_csv train_046.txt >Fu_UNetWithDrop_46_4_12.log 2>&1 & && \
+nohup python3 train_cutmix_2D_1.py --exp /CutMix_86v1_4_7 --gpu 3 --labeled_csv train_label_86_v1.txt --unlabeled_csv train_unlabeled_8462_v1.txt --consistency 5 >CutMix_86v1_4_7.log 2>&1 & && \
+nohup python3 test_2D_v3.py --exp Fu_LinkNet_46_10_4_23_1715_labeled --model LinkNetBaseWithDrop --gpu 1 --target_mpp 0.46 >val_LinkNetwithdrop_46_10_4_25.log 2>&1 &

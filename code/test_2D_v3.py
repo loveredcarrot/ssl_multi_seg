@@ -27,14 +27,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
                     default='../csv_data', help='path of data')
 parser.add_argument('--exp', type=str,
-                    default='/Fu_LinkNetWithdrop_4_8_1715_labeled', help='experiment_name')
+                    default='/Fu_LinkNetdrop_46_4_12_1715_labeled', help='experiment_name')
 parser.add_argument('--model', type=str,
                     default='LinkNetBaseWithDrop', help='model_name')
 parser.add_argument('--num_classes', type=int, default=6,
                     help='output channel of network')
 parser.add_argument('--gpu', type=str, default='0', help='GPU to use')
 parser.add_argument('--stride', type=int, default=2048, help='patch stride for WSI')
-parser.add_argument('--target_mpp', type=float, default=0.92, help='the train model mpp')
+parser.add_argument('--target_mpp', type=float, default=0.46, help='the train model mpp')
 parser.add_argument('--pad', type=int, default=128, help='the pad for the patch size')
 
 args = parser.parse_args()
@@ -98,6 +98,8 @@ def test_single_volume(case_path, net, stride, pad, target_mpp):
     scale = round(mpp / target_mpp, 4)
     resize_width = int(math.ceil(image.size[0] * scale / 32) * 32)
     resize_height = int(math.ceil(image.size[1] * scale / 32) * 32)
+    print(image.size)
+    print(resize_height, resize_width)
     ds_image = image.resize((resize_width, resize_height), Image.ANTIALIAS)
     ds_mask = mask.resize((resize_width, resize_height), Image.NEAREST)
 
@@ -106,29 +108,32 @@ def test_single_volume(case_path, net, stride, pad, target_mpp):
     ds_label = np.asarray(ds_mask, np.float32)
     ds_label = ds_label.astype(np.int)
     ds_label = convertMultiLabels(ds_label)
-    ds_image /= 255
+    print(np.unique(ds_label))
+    print(ds_label.shape)
+    # ds_image /= 255
 
-    # extract patches and prediction
+    # extract patches and prediction  , concat prediction patch
     patch_size = stride + 2 * pad
     max_y = int((np.ceil(resize_height / stride) - 1) * stride) + patch_size
     max_x = int((np.ceil(resize_width / stride) - 1) * stride) + patch_size
+    print(max_y, max_x)
 
     ds_prediction = np.zeros((max_y, max_x), dtype='uint8')
-
+    # 错误之处，提前除以了255。然后又对数据取整，导致整体数据出错了。
     image = np.zeros((max_y, max_x, 3), dtype='uint8')
     image[pad:ds_image.shape[0] + pad, pad:ds_image.shape[1] + pad, :] = ds_image
+    image = np.asarray(image, dtype=float)
+    image /= 255.0
 
-    label = np.zeros((max_y, max_x), dtype='uint8')
-    label[pad:ds_mask.shape[0] + pad, pad:ds_mask.shape[1] + pad] = ds_label
-
-    y_list = range(0, max_y, stride)
-    x_list = range(0, max_x, stride)
+    y_list = range(0, max_y, stride)[:-1]
+    x_list = range(0, max_x, stride)[:-1]
+    print(y_list)
+    print(x_list)
 
     for y in y_list:
         for x in x_list:
+            print(y, x)
             patch = image[y:y + patch_size, x:x + patch_size, :]
-            label = label[y:y + patch_size, x:x + patch_size]
-
             patch = np.transpose(patch, (2, 0, 1))
             input = torch.from_numpy(patch).unsqueeze(0).float().cuda()
             net.eval()
@@ -136,22 +141,24 @@ def test_single_volume(case_path, net, stride, pad, target_mpp):
                 out_main = net(input)
                 out = torch.argmax(torch.softmax(out_main, dim=1), dim=1).squeeze(0)
                 out = out.cpu().detach().numpy()
-                prediction = out
-            ds_prediction[y:y + stride, x:x + stride] = prediction[pad:stride + pad, pad:stride + pad]
+                print(out.shape)
+
+            ds_prediction[y:y + stride, x:x + stride] = out[pad:stride + pad, pad:stride + pad]
 
     overlay_mask = np.zeros((ds_label.shape[0], ds_label.shape[1]), dtype='uint8')
     overlay_mask[ds_label > 0] = 1
-    ds_prediction = ds_prediction[0:ds_label.shape[0], ds_label.shape[1]]
-    assert overlay_mask.shape == ds_prediction.shape, 'Error'
-    ds_prediction = ds_prediction * overlay_mask
+    print(np.sum(overlay_mask))
+    prediction_label = ds_prediction[0:ds_label.shape[0], 0:ds_label.shape[1]]
+    assert overlay_mask.shape == prediction_label.shape, 'Error'
+    prediction_label = prediction_label * overlay_mask
     metric_list = []
     for i in range(1, 6):
-        metric_list.append(calculate_metric_percase(ds_prediction == i, ds_label == i))
+        metric_list.append(calculate_metric_percase(prediction_label == i, ds_label == i))
     return metric_list
 
 
 def Inference(FLAGS):
-    with open(FLAGS.root_path + '/val_3_25.txt', 'r') as f:
+    with open(FLAGS.root_path + '/val_mutil_wsi.txt', 'r') as f:
         case_list = f.readlines()
     case_list = [item.replace('\n', '')
                  for item in case_list]
@@ -166,7 +173,7 @@ def Inference(FLAGS):
     file_list = os.listdir(snapshot_path)
     filedir = []
     for i in file_list:
-        if i.__contains__('pth') and int(i.split('.')[0].split('_')[1]) % 2000 == 0:
+        if i.__contains__('pth') and int(i.split('.')[0].split('_')[1]) % 40000 == 0:
             filedir.append(i)
     filedir.sort(key=lambda x: int(x.split('.')[0].split('_')[1]))
     target_txt = 'dice.txt'
@@ -201,6 +208,7 @@ def Inference(FLAGS):
                 metric_i = metric_i / num
                 metric.append(metric_i)
             avg_metric = np.asarray(metric)
+            print(avg_metric)
             line = file
             for i in range(0, 5):
                 line = line + ',' + str(round(avg_metric[i][0], 4))
@@ -212,5 +220,6 @@ def Inference(FLAGS):
     f.close()
 
 
-if __name__ == "__main__":
-    Inference()
+if __name__ == '__main__':
+    FLAGS = parser.parse_args()
+    Inference(FLAGS)
